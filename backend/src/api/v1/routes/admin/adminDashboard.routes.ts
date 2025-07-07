@@ -1,7 +1,7 @@
 import express, { NextFunction, Request, Response } from "express";
 import { checkAccess } from "../../middlewares/authentication.middleware";
 import { verifyJWT } from "../../middlewares/jwt.middleware";
-import { getAdminDashboard } from "../../controllers/adminDashboard.controller";
+import { getAdminDashboard, getAdminDashboardStats } from "../../controllers/adminDashboard.controller";
 
 const router = express.Router();
 
@@ -16,5 +16,7 @@ router.get("/dashboard", verifyJWT, (req:Request, res:Response,next:NextFunction
 },
 getAdminDashboard
 );
+
+router.get('/dashboard/stats', verifyJWT, checkAccess('ADMIN'), getAdminDashboardStats);
 
 export default router;

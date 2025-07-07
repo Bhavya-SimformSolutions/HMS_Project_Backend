@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService } from '../services/doctor.service';
+import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService } from '../services/doctor.service';
 import { createDoctorSchema, doctorAppointmentStatusSchema, vitalSignsSchema, diagnosisSchema, addBillSchema, generateFinalBillSchema } from '../validations/doctor.validation';
 
 export const createDoctor = async (req: Request, res: Response) => {
@@ -242,5 +242,21 @@ export const getAllServices = async (req: Request, res: Response): Promise<void>
     res.status(200).json(services);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching services', error });
+  }
+};
+
+/**
+ * Controller for doctor dashboard stats
+ */
+export const getDoctorDashboardStats = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.userId || typeof req.userId !== 'string') {
+      res.status(401).json({ message: 'Unauthorized: userId missing' });
+      return;
+    }
+    const stats = await getDoctorDashboardStatsService(req.userId);
+    res.status(200).json(stats);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Failed to fetch doctor dashboard stats' });
   }
 };

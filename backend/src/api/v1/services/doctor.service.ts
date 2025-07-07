@@ -355,3 +355,95 @@ export const generateFinalBillForAppointment = async (
 export const getAllServices = async () => {
   return prisma.services.findMany();
 };
+/**
+ * Returns dashboard stats for a doctor: total patients, total appointments, total consultations,
+ * appointments by month (with completed), and today's working hours.
+ * @param userId - The user ID of the doctor
+ */
+export const getDoctorDashboardStatsService = async (userId: string) => {
+  // Find the doctor by userId
+  const doctor = await prisma.doctor.findUnique({
+    where: { user_id: userId },
+    include: { working_days: true },
+  });
+  if (!doctor) throw new Error('Doctor not found');
+
+  // Total patients (distinct patients for this doctor)
+  const uniquePatients = await prisma.appointment.findMany({
+    where: { doctor_id: doctor.id },
+    select: { patient_id: true },
+    distinct: ['patient_id']
+  });
+  const totalPatients = uniquePatients.length;
+
+  // Total appointments for this doctor
+  const totalAppointments = await prisma.appointment.count({
+    where: { doctor_id: doctor.id }
+  });
+
+  // Total consultations (completed appointments)
+  const totalConsultations = await prisma.appointment.count({
+    where: { doctor_id: doctor.id, status: 'COMPLETED' }
+  });
+
+  // Appointments by month (for chart)
+  const appointments = await prisma.appointment.findMany({
+    where: { doctor_id: doctor.id },
+    select: { appointment_date: true, status: true },
+    orderBy: { appointment_date: 'asc' }
+  });
+  // Group by month
+  const months: string[] = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  const chartData: { month: string; appointments: number; completed: number }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const monthAppointments = appointments.filter(a => a.appointment_date.getMonth() === i);
+    chartData.push({
+      month: months[i],
+      appointments: monthAppointments.length,
+      completed: monthAppointments.filter(a => a.status === 'COMPLETED').length
+    });
+  }
+
+  // Today's working hours (fix day string format)
+  const today = new Date();
+  const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
+  // Capitalize first letter, rest lowercase (e.g., 'Monday')
+  const formattedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1).toLowerCase();
+  const todayWorking = doctor.working_days.find(wd => wd.day === formattedDay);
+  const workingHoursToday = todayWorking ? `${todayWorking.start_time} - ${todayWorking.close_time}` : 'Not Available';
+
+  // Recent appointments (last 5, newest first)
+  const recentAppointments = await prisma.appointment.findMany({
+    where: { doctor_id: doctor.id },
+    orderBy: { appointment_date: 'desc' },
+    take: 5,
+    include: {
+      patient: {
+        select: {
+          first_name: true,
+          last_name: true,
+          gender: true,
+        }
+      },
+      doctor: {
+        select: {
+          name: true,
+          specialization: true,
+        }
+      }
+    }
+  });
+
+  return {
+    doctorName: doctor.name,
+    totalPatients,
+    totalAppointments,
+    totalConsultations,
+    appointmentsByMonth: chartData,
+    workingHoursToday,
+    recentAppointments
+  };
+};

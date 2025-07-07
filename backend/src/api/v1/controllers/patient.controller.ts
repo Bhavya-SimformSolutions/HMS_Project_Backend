@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { registerPatientDetailsService, checkPatientRegistrationService } from '../services/patient.service';
+import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService } from '../services/patient.service';
 
 /**
  * Registers patient details in the system.
@@ -71,5 +71,21 @@ export const checkPatientRegistration = async (req: Request, res: Response): Pro
     res.json({ isRegistered });
   } catch (error) {
     res.status(400).json({ message: error instanceof Error ? error.message : "Internal server error" });
+  }
+};
+
+/**
+ * Controller for patient dashboard stats
+ */
+export const getPatientDashboardStats = async (req: Request, res: Response) => {
+  try {
+    if (!req.userId || typeof req.userId !== 'string') {
+      res.status(401).json({ message: 'Unauthorized: userId missing' });
+      return;
+    }
+    const stats = await getPatientDashboardStatsService(req.userId);
+    res.status(200).json(stats);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Failed to fetch patient dashboard stats' });
   }
 };

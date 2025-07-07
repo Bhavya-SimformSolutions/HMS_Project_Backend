@@ -13,7 +13,8 @@ import {
   addBillToAppointment,
   deleteBillFromAppointment,
   generateFinalBillForAppointment,
-  getAllServices
+  getAllServices,
+  getDoctorDashboardStats
 } from '../controllers/doctor.controller';
 import { verifyJWT } from '../middlewares/jwt.middleware';
 import { checkAccess } from '../middlewares/authentication.middleware';
@@ -38,6 +39,7 @@ router.put('/doctor/appointments/:id/status', verifyJWT, checkAccess('DOCTOR'), 
 router.post('/doctor/appointments/:id/vitals', verifyJWT, checkAccess('DOCTOR'), addVitalSigns);
 router.get('/doctor/appointments/:id/diagnosis', verifyJWT, checkAccess('DOCTOR'), getDiagnosisForAppointment);
 router.post('/doctor/appointments/:id/diagnosis', verifyJWT, checkAccess('DOCTOR'), addDiagnosisForAppointment);
+router.get('/doctor/dashboard', verifyJWT, checkAccess('DOCTOR'), getDoctorDashboardStats);
 
 // --- Billing Endpoints for Doctors ---
 router.get('/doctor/appointments/:id/bills', verifyJWT, checkAccess('DOCTOR'), getBillsForAppointment);
@@ -45,5 +47,6 @@ router.post('/doctor/appointments/:id/bills', verifyJWT, checkAccess('DOCTOR'), 
 router.delete('/doctor/appointments/:id/bills/:billId', verifyJWT, checkAccess('DOCTOR'), deleteBillFromAppointment);
 router.post('/doctor/appointments/:id/generate-bill', verifyJWT, checkAccess('DOCTOR'), generateFinalBillForAppointment);
 router.get('/doctor/services', verifyJWT, checkAccess('DOCTOR'), getAllServices);
+
 
 export default router; 

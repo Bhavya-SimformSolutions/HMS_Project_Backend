@@ -16,8 +16,8 @@ dotenv.config();
 const app=express();
 
 app.use(cors({
-  origin:'http://localhost:4200', 
-  credentials:true,
+  origin: ['http://localhost:4200', 'http://localhost:40193'],
+  credentials: true,
 }))
 
 // Increase the payload size limit to handle image uploads

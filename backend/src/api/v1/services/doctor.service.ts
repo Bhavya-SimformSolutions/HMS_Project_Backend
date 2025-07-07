@@ -3,6 +3,7 @@ import { PrismaClient, AppointmentStatus } from "@prisma/client";
 import { DoctorCreateInput } from '../interfaces/doctors/doctor_types';
 import { z } from 'zod';
 import { vitalSignsSchema, diagnosisSchema } from '../validations/doctor.validation';
+import { createNotification } from './notification.service';
 
 const prisma = new PrismaClient();
 type VitalSignsInput = z.infer<typeof vitalSignsSchema>;
@@ -91,12 +92,8 @@ export const addVitalSignsService = async (
   appointmentId: number,
   data: VitalSignsInput,
 ) => {
-  const appointment = await prisma.appointment.findUnique({
-    where: { id: appointmentId },
-    select: { patient_id: true, doctor_id: true },
-  });
-
-  if (!appointment) {
+  const vitalAppointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
+  if (!vitalAppointment) {
     throw new Error('Appointment not found');
   }
 
@@ -108,8 +105,8 @@ export const addVitalSignsService = async (
     medicalRecord = await prisma.medicalRecords.create({
       data: {
         appointment_id: appointmentId,
-        patient_id: appointment.patient_id,
-        doctor_id: appointment.doctor_id,
+        patient_id: vitalAppointment.patient_id,
+        doctor_id: vitalAppointment.doctor_id,
       },
     });
   }
@@ -117,7 +114,7 @@ export const addVitalSignsService = async (
   const { temperature, blood_pressure, heart_rate, weight, height, respiratory_rate, oxygen_saturation } = data;
   const [systolic, diastolic] = blood_pressure.split('/').map(Number);
 
-  return prisma.vitalSigns.create({
+  const vital = await prisma.vitalSigns.create({
     data: {
       medical_id: medicalRecord.id,
       body_temperature: temperature,
@@ -130,6 +127,20 @@ export const addVitalSignsService = async (
       ...(oxygen_saturation !== undefined ? { oxygen_saturation } : {}),
     },
   });
+
+  // Notify patient
+  if (vitalAppointment) {
+    const patient = await prisma.patient.findUnique({ where: { id: vitalAppointment.patient_id } });
+    if (patient && patient.user_id) {
+      await createNotification({
+        userId: patient.user_id,
+        title: 'New Vital Signs Added',
+        message: 'New vital signs have been added to your appointment.',
+        link: '/appointments',
+      });
+    }
+  }
+  return vital;
 };
 
 export const getDiagnosisForAppointmentService = async (appointmentId: number) => {
@@ -164,7 +175,7 @@ export const addDiagnosisForAppointmentService = async (
     });
   }
   // Create the diagnosis
-  return prisma.diagnosis.create({
+  const diagnosis = await prisma.diagnosis.create({
     data: {
       ...data,
       medical_id: medicalRecord.id,
@@ -172,6 +183,18 @@ export const addDiagnosisForAppointmentService = async (
       patient_id: patientId,
     },
   });
+
+  // Notify patient
+  const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+  if (patient && patient.user_id) {
+    await createNotification({
+      userId: patient.user_id,
+      title: 'New Diagnosis Added',
+      message: 'A new diagnosis has been added to your appointment.',
+      link: '/appointments',
+    });
+  }
+  return diagnosis;
 };
 
 export const getDoctorByUserId = async (userId: string) => {
@@ -197,6 +220,17 @@ export const updateDoctorAppointmentStatus = async (userId: string, appointmentI
     where: { id: appointmentId },
     data: { status: status as AppointmentStatus, reason }
   });
+
+  // Notify patient
+  const patient = await prisma.patient.findUnique({ where: { id: updated.patient_id } });
+  if (patient && patient.user_id) {
+    await createNotification({
+      userId: patient.user_id,
+      title: 'Appointment Status Updated',
+      message: `Your appointment status was changed to ${status}.`,
+      link: '/appointments',
+    });
+  }
   return { updated };
 };
 
@@ -240,21 +274,20 @@ export const addBillToAppointment = async (
   appointmentId: number,
   { service_id, quantity, service_date }: { service_id: number; quantity: number; service_date: string }
 ) => {
-  // Find or create payment record for this appointment
+  const billAppointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
+  if (!billAppointment) throw new Error('Appointment not found');
   let payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId } });
   if (!payment) {
-    // Find appointment and patient
-    const appointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
-    if (!appointment) throw new Error('Appointment not found');
     payment = await prisma.payment.create({
       data: {
         appointment_id: appointmentId,
-        patient_id: appointment.patient_id,
+        patient_id: billAppointment.patient_id,
         bill_date: new Date(),
         payment_date: new Date(),
         discount: 0,
         total_amount: 0,
         amount_paid: 0,
+        payment_method: 'CASH',
         status: 'UNPAID',
       },
     });
@@ -274,6 +307,17 @@ export const addBillToAppointment = async (
       total_cost,
     },
   });
+
+  // Notify patient
+  const patient = await prisma.patient.findUnique({ where: { id: billAppointment.patient_id } });
+  if (patient && patient.user_id) {
+    await createNotification({
+      userId: patient.user_id,
+      title: 'New Bill Generated',
+      message: 'A new bill has been generated for your appointment.',
+      link: '/appointments',
+    });
+  }
   return bill;
 };
 

@@ -1,6 +1,7 @@
 import { AppointmentStatus, PrismaClient } from "@prisma/client";
 import { createAppointmentSchema, updateAppointmentSchema } from "../validations/appointment.validation";
 import { z } from "zod";
+import { createNotification } from "./notification.service";
 
 const prisma = new PrismaClient();
 type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
@@ -28,7 +29,7 @@ export const createAppointmentService = async (userId: string, body: CreateAppoi
   });
   if (existingAppointment) throw new Error("This time slot is already booked for the selected doctor");
   // Create appointment
-  return prisma.appointment.create({
+  const appointment = await prisma.appointment.create({
     data: {
       patient_id: patient.id,
       doctor_id: validatedData.doctor_id,
@@ -39,9 +40,19 @@ export const createAppointmentService = async (userId: string, body: CreateAppoi
       status: AppointmentStatus.PENDING,
     },
     include: {
-      doctor: { select: { name: true, specialization: true } },
+      doctor: { select: { name: true, specialization: true, user_id: true } },
     },
   });
+  // Send notification to doctor
+  if (appointment.doctor && appointment.doctor.user_id) {
+    await createNotification({
+      userId: appointment.doctor.user_id,
+      title: 'New Appointment Booked',
+      message: `A patient has booked an appointment with you.`,
+      link: '/doctor/appointments',
+    });
+  }
+  return appointment;
 };
 
 export const getPatientAppointmentsService = async (userId: string) => {

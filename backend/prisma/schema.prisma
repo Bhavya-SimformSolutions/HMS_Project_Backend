@@ -65,6 +65,7 @@ model User {
   lastName  String?
   role      Role    @default(PATIENT) // Role of the user (e.g., ADMIN, DOCTOR, etc.)
   status    Status  @default(ACTIVE) // Account status (e.g., ACTIVE, INACTIVE)
+  notifications Notification[]
 
   // Relation to Patient model
   patient Patient?
@@ -256,4 +257,14 @@ model Payment {
   updated_at      DateTime @updatedAt
 }
 
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
 

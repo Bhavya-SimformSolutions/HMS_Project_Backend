@@ -10,6 +10,7 @@ import doctorRoutes from "./api/v1/routes/doctor.routes";
 import serviceRoutes from "./api/v1/routes/admin/services.routes";
 import cors from 'cors'
 import path from 'path';
+import notificationRoutes from "./api/v1/routes/notification.routes";
 
 dotenv.config();
 const app=express();
@@ -32,6 +33,7 @@ app.use("/auth", authRoutes);
 app.use("/patient", patientRoutes);
 app.use("/patient/appointments", appointmentRoutes);
 app.use("/", doctorRoutes);
+app.use('/notifications', notificationRoutes);
 
 app.listen(process.env.PORT, () => {
   console.log(`Server is running on port ${String(process.env.PORT)}`);

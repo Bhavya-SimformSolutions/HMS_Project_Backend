@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService } from '../services/patient.service';
+import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService, getPaginatedPatientsService } from '../services/patient.service';
 
 /**
  * Registers patient details in the system.
@@ -87,5 +87,21 @@ export const getPatientDashboardStats = async (req: Request, res: Response) => {
     res.status(200).json(stats);
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Failed to fetch patient dashboard stats' });
+  }
+};
+
+/**
+ * Gets a paginated list of all patients (admin only)
+ */
+export const getPaginatedPatients = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const sort = (req.query.sort as string) === 'asc' ? 'asc' : 'desc';
+    const { patients, total } = await getPaginatedPatientsService(page, limit, search, sort);
+    res.status(200).json({ patients, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };

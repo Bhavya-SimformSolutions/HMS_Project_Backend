@@ -87,3 +87,32 @@ export const getPatientDashboardStatsService = async (userId: string) => {
     recentAppointments
   };
 };
+
+/**
+ * Fetches a paginated list of patients for admin, with search and sort.
+ * @param page - The page number (1-based)
+ * @param limit - The number of patients per page
+ * @param search - Optional search string (name/email)
+ * @param sort - 'asc' or 'desc' for registration date
+ * @returns { patients, total }
+ */
+export const getPaginatedPatientsService = async (page: number, limit: number, search?: string, sort: 'asc' | 'desc' = 'desc') => {
+  const skip = (page - 1) * limit;
+  const where = search ? {
+    OR: [
+      { first_name: { contains: search, mode: 'insensitive' as any } },
+      { last_name: { contains: search, mode: 'insensitive' as any } },
+      { email: { contains: search, mode: 'insensitive' as any } },
+    ]
+  } : {};
+  const [patients, total] = await Promise.all([
+    prisma.patient.findMany({
+      skip,
+      take: limit,
+      where,
+      orderBy: { created_at: sort },
+    }),
+    prisma.patient.count({ where }),
+  ]);
+  return { patients, total };
+};

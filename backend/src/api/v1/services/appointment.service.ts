@@ -108,3 +108,40 @@ export const getAppointmentCountService = async (userId: string) => {
 export const getDoctorsService = async () => {
   return prisma.doctor.findMany({ select: { id: true, name: true, specialization: true, img: true } });
 };
+
+/**
+ * Fetches a paginated list of appointments for admin, with search and status filter.
+ * @param page - The page number (1-based)
+ * @param limit - The number of appointments per page
+ * @param search - Optional search string (patient/doctor name)
+ * @param status - Optional status filter
+ * @returns { appointments, total }
+ */
+export const getPaginatedAppointmentsService = async (page: number, limit: number, search?: string, status?: string) => {
+  const skip = (page - 1) * limit;
+  const where: any = {};
+  if (status && status !== 'ALL') {
+    where.status = status;
+  }
+  if (search) {
+    where.OR = [
+      { patient: { first_name: { contains: search, mode: 'insensitive' } } },
+      { patient: { last_name: { contains: search, mode: 'insensitive' } } },
+      { doctor: { name: { contains: search, mode: 'insensitive' } } },
+    ];
+  }
+  const [appointments, total] = await Promise.all([
+    prisma.appointment.findMany({
+      skip,
+      take: limit,
+      where,
+      orderBy: { appointment_date: 'desc' },
+      include: {
+        doctor: { select: { name: true, specialization: true } },
+        patient: { select: { first_name: true, last_name: true } },
+      },
+    }),
+    prisma.appointment.count({ where }),
+  ]);
+  return { appointments, total };
+};

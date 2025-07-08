@@ -2,6 +2,8 @@ import express, { NextFunction, Request, Response } from "express";
 import { checkAccess } from "../../middlewares/authentication.middleware";
 import { verifyJWT } from "../../middlewares/jwt.middleware";
 import { getAdminDashboard, getAdminDashboardStats } from "../../controllers/adminDashboard.controller";
+import { getPaginatedPatients } from '../../controllers/patient.controller';
+import { getPaginatedAppointments } from '../../controllers/appointment.controller';
 
 const router = express.Router();
 
@@ -18,5 +20,9 @@ getAdminDashboard
 );
 
 router.get('/dashboard/stats', verifyJWT, checkAccess('ADMIN'), getAdminDashboardStats);
+
+router.get('/patients', verifyJWT, checkAccess('ADMIN'), getPaginatedPatients);
+
+router.get('/appointments', verifyJWT, checkAccess('ADMIN'), getPaginatedAppointments);
 
 export default router;

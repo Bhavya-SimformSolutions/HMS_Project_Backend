@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   createDoctor,
-  getAllDoctors,
   getDoctorsForPatients,
   getDoctorAppointments,
   getAppointmentById,
@@ -14,7 +13,10 @@ import {
   deleteBillFromAppointment,
   generateFinalBillForAppointment,
   getAllServices,
-  getDoctorDashboardStats
+  getDoctorDashboardStats,
+  getPaginatedDoctorPatients,
+  getPaginatedDoctorBillingOverview,
+  getPaginatedDoctorsForAdmin
 } from '../controllers/doctor.controller';
 import { verifyJWT } from '../middlewares/jwt.middleware';
 import { checkAccess } from '../middlewares/authentication.middleware';
@@ -25,7 +27,7 @@ const router = Router();
 // --- Routes for Admins ---
 // Path: /admin/doctors
 router.post('/admin/doctors', verifyJWT, checkAccess('ADMIN'), createDoctor);
-router.get('/admin/doctors', verifyJWT, checkAccess('ADMIN'), getAllDoctors);
+router.get('/admin/doctors', verifyJWT, checkAccess('ADMIN'), getPaginatedDoctorsForAdmin);
 
 // --- Routes for Patients ---
 // Path: /patient/doctors
@@ -48,5 +50,9 @@ router.delete('/doctor/appointments/:id/bills/:billId', verifyJWT, checkAccess('
 router.post('/doctor/appointments/:id/generate-bill', verifyJWT, checkAccess('DOCTOR'), generateFinalBillForAppointment);
 router.get('/doctor/services', verifyJWT, checkAccess('DOCTOR'), getAllServices);
 
+router.get('/doctor/patients', verifyJWT, checkAccess('DOCTOR'), getPaginatedDoctorPatients);
 
-export default router; 
+// --- Billing Overview for Doctor ---
+router.get('/doctor/billing', verifyJWT, checkAccess('DOCTOR'), getPaginatedDoctorBillingOverview);
+
+export default router;

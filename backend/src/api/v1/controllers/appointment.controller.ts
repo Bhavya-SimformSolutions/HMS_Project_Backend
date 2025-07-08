@@ -7,6 +7,7 @@ import {
   updateAppointmentStatusService,
   getAppointmentCountService,
   getDoctorsService,
+  getPaginatedAppointmentsService,
 } from "../services/appointment.service";
 import { createAppointmentSchema, updateAppointmentSchema } from "../validations/appointment.validation";
 
@@ -219,5 +220,21 @@ export const getDoctors = async (
       message: "Failed to fetch doctors",
       error: error instanceof Error ? error.message : "Unknown error occurred",
     });
+  }
+};
+
+/**
+ * Gets a paginated list of all appointments (admin only)
+ */
+export const getPaginatedAppointments = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const status = (req.query.status as string) || undefined;
+    const { appointments, total } = await getPaginatedAppointmentsService(page, limit, search, status);
+    res.status(200).json({ appointments, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };

@@ -447,3 +447,181 @@ export const getDoctorDashboardStatsService = async (userId: string) => {
     recentAppointments
   };
 };
+
+/**
+ * Fetches paginated, searchable, filterable patients for a doctor.
+ * @param doctorUserId - The userId of the doctor
+ * @param page - Page number (1-based)
+ * @param limit - Number of patients per page
+ * @param search - Optional search string (name/email/phone)
+ * @returns { patients, total }
+ */
+export const getPaginatedDoctorPatientsService = async (doctorUserId: string, page: number, limit: number, search?: string) => {
+  // Find doctor by userId
+  const doctor = await prisma.doctor.findUnique({ where: { user_id: doctorUserId } });
+  if (!doctor) throw new Error('Doctor not found');
+  const skip = (page - 1) * limit;
+  // Find unique patient IDs for this doctor
+  const patientIdsResult = await prisma.appointment.findMany({
+    where: { doctor_id: doctor.id },
+    select: { patient_id: true },
+    distinct: ['patient_id']
+  });
+  const patientIds = patientIdsResult.map(r => r.patient_id);
+  // Build where clause for search
+  let where: any = { id: { in: patientIds } };
+  if (search) {
+    where = {
+      AND: [
+        { id: { in: patientIds } },
+        {
+          OR: [
+            { first_name: { contains: search, mode: 'insensitive' as any } },
+            { last_name: { contains: search, mode: 'insensitive' as any } },
+            { email: { contains: search, mode: 'insensitive' as any } },
+            { phone: { contains: search, mode: 'insensitive' as any } },
+          ]
+        }
+      ]
+    };
+  }
+  const [patients, total] = await Promise.all([
+    prisma.patient.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: 'desc' },
+    }),
+    prisma.patient.count({ where }),
+  ]);
+  return { patients, total };
+};
+
+/**
+ * Fetches a paginated, searchable billing overview for a doctor (across all their patients/appointments).
+ * @param doctorUserId - The userId of the doctor
+ * @param page - Page number (1-based)
+ * @param limit - Number of bills per page
+ * @param search - Optional search string (patient name, bill ID)
+ * @returns { bills, total }
+ */
+export const getPaginatedDoctorBillingOverviewService = async (
+  doctorUserId: string,
+  page: number,
+  limit: number,
+  search?: string
+) => {
+  // Find doctor by userId
+  const doctor = await prisma.doctor.findUnique({ where: { user_id: doctorUserId } });
+  if (!doctor) throw new Error('Doctor not found');
+  const skip = (page - 1) * limit;
+
+  // Find all appointment IDs for this doctor
+  const appointmentIdsResult = await prisma.appointment.findMany({
+    where: { doctor_id: doctor.id },
+    select: { id: true }
+  });
+  const appointmentIds = appointmentIdsResult.map(r => r.id);
+  if (appointmentIds.length === 0) {
+    return { bills: [], total: 0 };
+  }
+
+  // Build where clause for search
+  let where: any = {
+    appointment_id: { in: appointmentIds }
+  };
+  if (search) {
+    where = {
+      AND: [
+        { appointment_id: { in: appointmentIds } },
+        {
+          OR: [
+            { id: { equals: parseInt(search) || undefined } }, // bill ID
+            { patient: {
+                OR: [
+                  { first_name: { contains: search, mode: 'insensitive' as any } },
+                  { last_name: { contains: search, mode: 'insensitive' as any } }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    };
+  }
+
+  // Query bills with joins
+  const [bills, total] = await Promise.all([
+    prisma.patientBills.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { service_date: 'desc' },
+      include: {
+        service: true,
+        payment: {
+          include: {
+            appointment: {
+              include: {
+                patient: true
+              }
+            }
+          }
+        }
+      }
+    }),
+    prisma.patientBills.count({ where })
+  ]);
+
+  // Map to a flat structure for frontend
+  const result = bills.map(bill => ({
+    id: bill.id,
+    serviceName: bill.service?.service_name,
+    serviceDate: bill.service_date,
+    quantity: bill.quantity,
+    unitCost: bill.unit_cost,
+    totalCost: bill.total_cost,
+    patient: bill.payment?.appointment?.patient,
+    appointmentId: bill.payment?.appointment?.id,
+    status: bill.payment?.status,
+    billDate: bill.payment?.bill_date,
+    paymentDate: bill.payment?.payment_date
+  }));
+
+  return { bills: result, total };
+};
+
+/**
+ * Service for paginated, searchable, sortable doctors for admin
+ */
+export const getPaginatedDoctorsForAdminService = async (
+  page: number = 1,
+  limit: number = 10,
+  search: string = '',
+  sortOrder: 'asc' | 'desc' = 'desc'
+) => {
+  const skip = (page - 1) * limit;
+  let where: any = {};
+  if (search) {
+    where = {
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { specialization: { contains: search, mode: 'insensitive' } },
+        { license_number: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } }
+      ]
+    };
+  }
+  const [doctors, total] = await Promise.all([
+    prisma.doctor.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: sortOrder },
+      include: { working_days: true },
+    }),
+    prisma.doctor.count({ where })
+  ]);
+  return { doctors, total };
+};

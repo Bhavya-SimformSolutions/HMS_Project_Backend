@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService } from '../services/doctor.service';
+import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService, getPaginatedDoctorPatientsService, getPaginatedDoctorBillingOverviewService, getPaginatedDoctorsForAdminService } from '../services/doctor.service';
 import { createDoctorSchema, doctorAppointmentStatusSchema, vitalSignsSchema, diagnosisSchema, addBillSchema, generateFinalBillSchema } from '../validations/doctor.validation';
 
 export const createDoctor = async (req: Request, res: Response) => {
@@ -258,5 +258,60 @@ export const getDoctorDashboardStats = async (req: Request, res: Response): Prom
     res.status(200).json(stats);
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Failed to fetch doctor dashboard stats' });
+  }
+};
+
+/**
+ * Gets paginated, searchable, filterable patients for the logged-in doctor
+ */
+export const getPaginatedDoctorPatients = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.userId) {
+      res.status(401).json({ message: 'Unauthorized: Missing userId' });
+      return;
+    }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const { patients, total } = await getPaginatedDoctorPatientsService(req.userId, page, limit, search);
+    res.status(200).json({ patients, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Gets paginated, searchable billing overview for the logged-in doctor
+ */
+export const getPaginatedDoctorBillingOverview = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.userId) {
+      res.status(401).json({ message: 'Unauthorized: Missing userId' });
+      return;
+    }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const { bills, total } = await getPaginatedDoctorBillingOverviewService(req.userId, page, limit, search);
+    res.status(200).json({ bills, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Gets paginated, searchable, sortable doctors for admin
+ * GET /admin/doctors?page=1&limit=10&search=...&sortOrder=desc
+ */
+export const getPaginatedDoctorsForAdmin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || '';
+    const sortOrder = (req.query.sortOrder as string) === 'asc' ? 'asc' : 'desc';
+    const { doctors, total } = await getPaginatedDoctorsForAdminService(page, limit, search, sortOrder);
+    res.status(200).json({ doctors, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };

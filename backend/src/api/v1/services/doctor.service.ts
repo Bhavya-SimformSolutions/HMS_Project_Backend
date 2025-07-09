@@ -266,8 +266,7 @@ export const getBillsForAppointment = async (appointmentId: number) => {
       bills: { include: { service: true } },
     },
   });
-  if (!payment) return [];
-  return payment.bills;
+  return payment;
 };
 
 export const addBillToAppointment = async (
@@ -276,9 +275,9 @@ export const addBillToAppointment = async (
 ) => {
   const billAppointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
   if (!billAppointment) throw new Error('Appointment not found');
-  let payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId } });
+  let payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId }, include: { bills: true } });
   if (!payment) {
-    payment = await prisma.payment.create({
+    await prisma.payment.create({
       data: {
         appointment_id: appointmentId,
         patient_id: billAppointment.patient_id,
@@ -289,14 +288,16 @@ export const addBillToAppointment = async (
         amount_paid: 0,
         payment_method: 'CASH',
         status: 'UNPAID',
+        finalized: false,
       },
     });
+    payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId }, include: { bills: true } });
   }
-  // Get service info
+  if (!payment) throw new Error('Payment not found');
+  // Allow adding bills even if finalized
   const service = await prisma.services.findUnique({ where: { id: service_id } });
   if (!service) throw new Error('Service not found');
   const total_cost = service.price * quantity;
-  // Create bill
   const bill = await prisma.patientBills.create({
     data: {
       bill_id: payment.id,
@@ -307,7 +308,8 @@ export const addBillToAppointment = async (
       total_cost,
     },
   });
-
+  // Recalculate payment summary
+  await recalculatePaymentSummary(payment.id);
   // Notify patient
   const patient = await prisma.patient.findUnique({ where: { id: billAppointment.patient_id } });
   if (patient && patient.user_id) {
@@ -321,8 +323,62 @@ export const addBillToAppointment = async (
   return bill;
 };
 
-export const deleteBillFromAppointment = async (billId: number) => {
-  return prisma.patientBills.delete({ where: { id: billId } });
+export const deleteBillFromAppointment = async (appointmentId: number, billId: number) => {
+  const payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId } });
+  if (!payment) throw new Error('Payment not found');
+  // Allow deleting bills even if finalized
+  await prisma.patientBills.delete({ where: { id: billId } });
+  await recalculatePaymentSummary(payment.id);
+  return true;
+};
+
+export const editBillInAppointment = async (
+  appointmentId: number,
+  billId: number,
+  data: { service_id?: number; quantity?: number; service_date?: string }
+) => {
+  const payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId } });
+  if (!payment) throw new Error('Payment not found');
+  const bill = await prisma.patientBills.findUnique({ where: { id: billId } });
+  if (!bill) throw new Error('Bill not found');
+  let updateData: any = {};
+  if (data.service_id) {
+    const service = await prisma.services.findUnique({ where: { id: data.service_id } });
+    if (!service) throw new Error('Service not found');
+    updateData.service_id = data.service_id;
+    updateData.unit_cost = service.price;
+    updateData.total_cost = service.price * (data.quantity ?? bill.quantity);
+  }
+  if (data.quantity) {
+    updateData.quantity = data.quantity;
+    if (updateData.unit_cost) {
+      updateData.total_cost = updateData.unit_cost * data.quantity;
+    } else {
+      updateData.total_cost = bill.unit_cost * data.quantity;
+    }
+  }
+  if (data.service_date) {
+    updateData.service_date = new Date(data.service_date);
+  }
+  const updatedBill = await prisma.patientBills.update({ where: { id: billId }, data: updateData });
+  await recalculatePaymentSummary(payment.id);
+  return updatedBill;
+};
+
+export const editFinalBillSummary = async (
+  appointmentId: number,
+  data: { discount?: number; bill_date?: string }
+) => {
+  const payment = await prisma.payment.findUnique({ where: { appointment_id: appointmentId } });
+  if (!payment) throw new Error('Payment not found');
+  let updateData: any = {};
+  if (data.discount !== undefined) updateData.discount = data.discount;
+  if (data.bill_date) updateData.bill_date = new Date(data.bill_date);
+  await prisma.payment.update({ where: { id: payment.id }, data: updateData });
+  await recalculatePaymentSummary(payment.id);
+  // Fetch updated payment with bills
+  const updatedWithBills = await prisma.payment.findUnique({ where: { id: payment.id }, include: { bills: true } });
+  return updatedWithBills;
 };
 
 export const generateFinalBillForAppointment = async (
@@ -346,11 +402,29 @@ export const generateFinalBillForAppointment = async (
       discount,
       total_amount: total,
       bill_date: new Date(bill_date),
-      // amount_paid, status, etc. can be updated later
+      finalized: true,
+    },
+    include: { bills: { include: { service: true } } },
+  });
+  return { ...updated, bills: updated.bills, payable, discountAmount };
+};
+
+// Helper to recalculate payment summary
+async function recalculatePaymentSummary(paymentId: number) {
+  const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { bills: true } });
+  if (!payment) return;
+  const total = payment.bills.reduce((sum: number, bill: { total_cost: number }) => sum + bill.total_cost, 0);
+  const discountAmount = (total * (payment.discount || 0)) / 100;
+  const payable = total - discountAmount;
+  await prisma.payment.update({
+    where: { id: paymentId },
+    data: {
+      total_amount: total,
+      // Optionally update status, etc.
     },
   });
-  return { ...updated, payable, discountAmount };
-};
+  return { total, discountAmount, payable };
+}
 
 export const getAllServices = async () => {
   return prisma.services.findMany();
@@ -509,7 +583,8 @@ export const getPaginatedDoctorBillingOverviewService = async (
   doctorUserId: string,
   page: number,
   limit: number,
-  search?: string
+  search?: string,
+  sortOrder: 'asc' | 'desc' = 'desc'
 ) => {
   // Find doctor by userId
   const doctor = await prisma.doctor.findUnique({ where: { user_id: doctorUserId } });
@@ -528,20 +603,26 @@ export const getPaginatedDoctorBillingOverviewService = async (
 
   // Build where clause for search
   let where: any = {
-    appointment_id: { in: appointmentIds }
+    payment: {
+      appointment_id: { in: appointmentIds }
+    }
   };
   if (search) {
     where = {
       AND: [
-        { appointment_id: { in: appointmentIds } },
+        { payment: { appointment_id: { in: appointmentIds } } },
         {
           OR: [
             { id: { equals: parseInt(search) || undefined } }, // bill ID
-            { patient: {
-                OR: [
-                  { first_name: { contains: search, mode: 'insensitive' as any } },
-                  { last_name: { contains: search, mode: 'insensitive' as any } }
-                ]
+            { payment: {
+                appointment: {
+                  patient: {
+                    OR: [
+                      { first_name: { contains: search, mode: 'insensitive' as any } },
+                      { last_name: { contains: search, mode: 'insensitive' as any } }
+                    ]
+                  }
+                }
               }
             }
           ]
@@ -556,7 +637,7 @@ export const getPaginatedDoctorBillingOverviewService = async (
       where,
       skip,
       take: limit,
-      orderBy: { service_date: 'desc' },
+      orderBy: { service_date: sortOrder },
       include: {
         service: true,
         payment: {

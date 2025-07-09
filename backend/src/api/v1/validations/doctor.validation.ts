@@ -52,3 +52,14 @@ export const generateFinalBillSchema = z.object({
   discount: z.number().min(0).max(100), // percent
   bill_date: z.string(), // ISO date string
 });
+
+export const editBillSchema = z.object({
+  service_id: z.number().optional(),
+  quantity: z.number().min(1).optional(),
+  service_date: z.string().optional(), // ISO date string
+});
+
+export const editFinalBillSchema = z.object({
+  discount: z.number().min(0).max(100).optional(), // percent
+  bill_date: z.string().optional(), // ISO date string
+});

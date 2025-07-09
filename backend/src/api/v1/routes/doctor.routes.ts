@@ -16,7 +16,9 @@ import {
   getDoctorDashboardStats,
   getPaginatedDoctorPatients,
   getPaginatedDoctorBillingOverview,
-  getPaginatedDoctorsForAdmin
+  getPaginatedDoctorsForAdmin,
+  editBillInAppointmentController,
+  editFinalBillSummaryController
 } from '../controllers/doctor.controller';
 import { verifyJWT } from '../middlewares/jwt.middleware';
 import { checkAccess } from '../middlewares/authentication.middleware';
@@ -47,7 +49,9 @@ router.get('/doctor/dashboard', verifyJWT, checkAccess('DOCTOR'), getDoctorDashb
 router.get('/doctor/appointments/:id/bills', verifyJWT, checkAccess('DOCTOR'), getBillsForAppointment);
 router.post('/doctor/appointments/:id/bills', verifyJWT, checkAccess('DOCTOR'), addBillToAppointment);
 router.delete('/doctor/appointments/:id/bills/:billId', verifyJWT, checkAccess('DOCTOR'), deleteBillFromAppointment);
+router.patch('/doctor/appointments/:id/bills/:billId', verifyJWT, checkAccess('DOCTOR'), editBillInAppointmentController);
 router.post('/doctor/appointments/:id/generate-bill', verifyJWT, checkAccess('DOCTOR'), generateFinalBillForAppointment);
+router.patch('/doctor/appointments/:id/final-bill', verifyJWT, checkAccess('DOCTOR'), editFinalBillSummaryController);
 router.get('/doctor/services', verifyJWT, checkAccess('DOCTOR'), getAllServices);
 
 router.get('/doctor/patients', verifyJWT, checkAccess('DOCTOR'), getPaginatedDoctorPatients);

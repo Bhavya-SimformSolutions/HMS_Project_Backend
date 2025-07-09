@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService, getPaginatedDoctorPatientsService, getPaginatedDoctorBillingOverviewService, getPaginatedDoctorsForAdminService } from '../services/doctor.service';
-import { createDoctorSchema, doctorAppointmentStatusSchema, vitalSignsSchema, diagnosisSchema, addBillSchema, generateFinalBillSchema } from '../validations/doctor.validation';
+import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService, getPaginatedDoctorPatientsService, getPaginatedDoctorBillingOverviewService, getPaginatedDoctorsForAdminService, editBillInAppointment as editBillInAppointmentService, editFinalBillSummary as editFinalBillSummaryService } from '../services/doctor.service';
+import { createDoctorSchema, doctorAppointmentStatusSchema, vitalSignsSchema, diagnosisSchema, addBillSchema, generateFinalBillSchema, editBillSchema, editFinalBillSchema } from '../validations/doctor.validation';
 
 export const createDoctor = async (req: Request, res: Response) => {
   try {
@@ -185,8 +185,12 @@ export const getBillsForAppointment = async (req: Request, res: Response): Promi
       res.status(400).json({ message: 'Invalid appointment ID' });
       return;
     }
-    const bills = await getBillsForAppointmentService(appointmentId);
-    res.status(200).json(bills);
+    const payment = await getBillsForAppointmentService(appointmentId);
+    if (!payment) {
+      res.status(200).json({});
+      return;
+    }
+    res.status(200).json(payment);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching bills', error });
   }
@@ -202,22 +206,31 @@ export const addBillToAppointment = async (req: Request, res: Response): Promise
     const billData = addBillSchema.parse(req.body);
     const bill = await addBillToAppointmentService(appointmentId, billData);
     res.status(201).json(bill);
-  } catch (error) {
-    res.status(500).json({ message: 'Error adding bill', error });
+  } catch (error: any) {
+    if (error.message && error.message.includes('Final bill already generated')) {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Error adding bill', error });
+    }
   }
 };
 
 export const deleteBillFromAppointment = async (req: Request, res: Response): Promise<void> => {
   try {
+    const appointmentId = parseInt(req.params.id, 10);
     const billId = parseInt(req.params.billId, 10);
-    if (isNaN(billId)) {
-      res.status(400).json({ message: 'Invalid bill ID' });
+    if (isNaN(appointmentId) || isNaN(billId)) {
+      res.status(400).json({ message: 'Invalid appointment or bill ID' });
       return;
     }
-    await deleteBillFromAppointmentService(billId);
+    await deleteBillFromAppointmentService(appointmentId, billId);
     res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ message: 'Error deleting bill', error });
+  } catch (error: any) {
+    if (error.message && error.message.includes('Final bill already generated')) {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Error deleting bill', error });
+    }
   }
 };
 
@@ -231,8 +244,12 @@ export const generateFinalBillForAppointment = async (req: Request, res: Respons
     const data = generateFinalBillSchema.parse(req.body);
     const result = await generateFinalBillForAppointmentService(appointmentId, data);
     res.status(200).json(result);
-  } catch (error) {
-    res.status(500).json({ message: 'Error generating final bill', error });
+  } catch (error: any) {
+    if (error.message && error.message.includes('Final bill already generated')) {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Error generating final bill', error });
+    }
   }
 };
 
@@ -292,9 +309,11 @@ export const getPaginatedDoctorBillingOverview = async (req: Request, res: Respo
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const search = (req.query.search as string) || undefined;
-    const { bills, total } = await getPaginatedDoctorBillingOverviewService(req.userId, page, limit, search);
+    const sortOrder = (req.query.sortOrder as string) === 'asc' ? 'asc' : 'desc';
+    const { bills, total } = await getPaginatedDoctorBillingOverviewService(req.userId, page, limit, search, sortOrder);
     res.status(200).json({ bills, total, page, limit });
   } catch (error) {
+    console.error('DEBUG: Error in getPaginatedDoctorBillingOverview:', error);
     res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };
@@ -313,5 +332,36 @@ export const getPaginatedDoctorsForAdmin = async (req: Request, res: Response): 
     res.status(200).json({ doctors, total, page, limit });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+export const editBillInAppointmentController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const appointmentId = parseInt(req.params.id, 10);
+    const billId = parseInt(req.params.billId, 10);
+    if (isNaN(appointmentId) || isNaN(billId)) {
+      res.status(400).json({ message: 'Invalid appointment or bill ID' });
+      return;
+    }
+    const data = editBillSchema.parse(req.body);
+    const updatedBill = await editBillInAppointmentService(appointmentId, billId, data);
+    res.status(200).json(updatedBill);
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error editing bill', error: error.message });
+  }
+};
+
+export const editFinalBillSummaryController = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const appointmentId = parseInt(req.params.id, 10);
+    if (isNaN(appointmentId)) {
+      res.status(400).json({ message: 'Invalid appointment ID' });
+      return;
+    }
+    const data = editFinalBillSchema.parse(req.body);
+    const updatedPayment = await editFinalBillSummaryService(appointmentId, data);
+    res.status(200).json(updatedPayment);
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error editing final bill summary', error: error.message });
   }
 };

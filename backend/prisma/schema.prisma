@@ -253,6 +253,7 @@ model Payment {
   appointment     Appointment @relation(fields: [appointment_id], references: [id], onDelete: Cascade)
   patient         Patient     @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   bills           PatientBills[]
+  finalized       Boolean   @default(false) // Indicates if final bill is generated and bills are locked
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 }

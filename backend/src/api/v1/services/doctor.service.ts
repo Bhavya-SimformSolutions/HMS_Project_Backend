@@ -666,7 +666,8 @@ export const getPaginatedDoctorBillingOverviewService = async (
     appointmentId: bill.payment?.appointment?.id,
     status: bill.payment?.status,
     billDate: bill.payment?.bill_date,
-    paymentDate: bill.payment?.payment_date
+    paymentDate: bill.payment?.payment_date,
+    discount: bill.payment?.discount // Added discount to result
   }));
 
   return { bills: result, total };

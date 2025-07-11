@@ -104,4 +104,121 @@ export const getAdminDashboardStatsService = async (userId: string) => {
     recentRegistrations,
     revenueByService
   };
+};
+
+export const getAdminBillingOverviewService = async (
+  page: number = 1,
+  limit: number = 10,
+  search: string = '',
+  sortOrder: 'asc' | 'desc' = 'desc',
+  filters?: {
+    doctor?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }
+) => {
+  const skip = (page - 1) * limit;
+  
+  // Build where clause for payments
+  const where: any = {};
+  
+  if (search) {
+    where.OR = [
+      { patient: { first_name: { contains: search, mode: 'insensitive' } } },
+      { patient: { last_name: { contains: search, mode: 'insensitive' } } },
+      { patient: { email: { contains: search, mode: 'insensitive' } } },
+      { appointment: { doctor: { name: { contains: search, mode: 'insensitive' } } } }
+    ];
+  }
+  
+  if (filters?.doctor) {
+    where.appointment = { doctor_id: filters.doctor };
+  }
+  
+  if (filters?.status) {
+    where.status = filters.status;
+  }
+  
+  if (filters?.dateFrom || filters?.dateTo) {
+    where.bill_date = {};
+    if (filters.dateFrom) {
+      where.bill_date.gte = new Date(filters.dateFrom);
+    }
+    if (filters.dateTo) {
+      where.bill_date.lte = new Date(filters.dateTo);
+    }
+  }
+  
+  // Get payments with patient, doctor, and bills info
+  const payments = await prisma.payment.findMany({
+    where,
+    include: {
+      patient: {
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          email: true,
+          img: true
+        }
+      },
+      appointment: {
+        select: {
+          id: true,
+          appointment_date: true,
+          doctor: {
+            select: {
+              id: true,
+              name: true,
+              specialization: true
+            }
+          }
+        }
+      },
+      bills: {
+        include: {
+          service: {
+            select: {
+              service_name: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: { bill_date: sortOrder },
+    skip,
+    take: limit
+  });
+  
+  // Transform payments to bills format for frontend compatibility
+  const bills = payments.map(payment => ({
+    id: payment.id,
+    patient: payment.patient,
+    doctor: payment.appointment.doctor,
+    appointment: payment.appointment,
+    totalCost: payment.total_amount,
+    discount: payment.discount,
+    status: payment.status,
+    billDate: payment.bill_date,
+    paymentDate: payment.payment_date,
+    bills: payment.bills.map(bill => ({
+      id: bill.id,
+      serviceName: bill.service.service_name,
+      serviceDate: bill.service_date,
+      quantity: bill.quantity,
+      unitCost: bill.unit_cost,
+      totalCost: bill.total_cost
+    }))
+  }));
+  
+  // Get total count
+  const total = await prisma.payment.count({ where });
+  
+  return {
+    bills,
+    total,
+    page,
+    limit
+  };
 }; 

@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService, getPaginatedPatientsService } from '../services/patient.service';
+import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService, getPaginatedPatientsService, getPatientProfileService } from '../services/patient.service';
 
 /**
  * Registers patient details in the system.
@@ -41,6 +41,8 @@ export const registerPatientDetails = async (req: Request, res: Response): Promi
         message: "Validation failed",
         errors: error.errors,
       });
+    } else if (error instanceof Error && (error.message === 'Email already exists' || error.message === 'Patient details already registered')) {
+      res.status(409).json({ message: error.message });
     } else {
       res.status(400).json({ message: error instanceof Error ? error.message : "Internal server error" });
     }
@@ -103,5 +105,22 @@ export const getPaginatedPatients = async (req: Request, res: Response): Promise
     res.status(200).json({ patients, total, page, limit });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Gets the profile of the logged-in patient
+ */
+export const getPatientProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    const profile = await getPatientProfileService(userId);
+    res.status(200).json({ data: profile }); // wrap in { data: ... } for frontend compatibility
+  } catch (error) {
+    res.status(404).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };

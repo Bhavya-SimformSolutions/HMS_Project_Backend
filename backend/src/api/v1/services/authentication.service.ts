@@ -25,8 +25,8 @@ export const loginService = async (body: LoginRequestBody) => {
     {
       id: user.id,
       role: user.role,
-      firstName: user.patient?.first_name,
-      lastName: user.patient?.last_name,
+      firstName: user.firstName, // FIX: Use User table fields
+      lastName: user.lastName,   // FIX: Use User table fields
       gender: user.patient?.gender
     },
     process.env.JWT_SECRET,
@@ -38,8 +38,8 @@ export const loginService = async (body: LoginRequestBody) => {
       id: user.id,
       email: user.email,
       role: user.role,
-      firstName: user.patient?.first_name,
-      lastName: user.patient?.last_name,
+      firstName: user.firstName, // FIX: Use User table fields
+      lastName: user.lastName,   // FIX: Use User table fields
       gender: user.patient?.gender
     }
   };
@@ -68,6 +68,8 @@ export const registerService = async (body: RegisterRequestBody) => {
       id: true,
       email: true,
       role: true,
+      firstName: true,
+      lastName: true,
     }
   });
   return newUser;

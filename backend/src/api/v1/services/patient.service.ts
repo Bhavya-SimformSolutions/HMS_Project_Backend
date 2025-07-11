@@ -13,9 +13,12 @@ export const registerPatientDetailsService = async (userId: string, formData: Re
   }
   // Validate form data with Zod
   const validatedData: PatientFormData = patientRegistrationSchema.parse(formData);
-  // Check if the patient is already registered
+  // Check if the patient is already registered for this user
   const existingPatient = await prisma.patient.findUnique({ where: { user_id: userId } });
   if (existingPatient) throw new Error("Patient details already registered");
+  // Check if the email is already used by another patient
+  const existingEmail = await prisma.patient.findUnique({ where: { email: validatedData.email } });
+  if (existingEmail) throw new Error("Email already exists");
   // Create patient record in the database
   const patient = await prisma.patient.create({
     data: {
@@ -23,6 +26,19 @@ export const registerPatientDetailsService = async (userId: string, formData: Re
       user_id: userId,
     },
   });
+
+  // If User table is missing firstName/lastName, update them from patient registration
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user && (!user.firstName || !user.lastName)) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: user.firstName || patient.first_name,
+        lastName: user.lastName || patient.last_name,
+      },
+    });
+  }
+
   return {
     id: patient.id,
     first_name: patient.first_name,
@@ -115,4 +131,35 @@ export const getPaginatedPatientsService = async (page: number, limit: number, s
     prisma.patient.count({ where }),
   ]);
   return { patients, total };
+};
+
+export const getPatientProfileService = async (userId: string) => {
+  const patient = await prisma.patient.findUnique({
+    where: { user_id: userId },
+    select: {
+      first_name: true,
+      last_name: true,
+      email: true,
+      gender: true,
+      date_of_birth: true,
+      phone: true,
+      marital_status: true,
+      blood_group: true,
+      address: true,
+      emergency_contact_name: true,
+      emergency_contact_number: true,
+      relation: true,
+      img: true,
+      created_at: true,
+      updated_at: true,
+      id: true, // needed for appointment count
+      // add more fields as needed
+    }
+  });
+  if (!patient) throw new Error('Patient not found');
+
+  // Fetch appointment count
+  const appointments = await prisma.appointment.count({ where: { patient_id: patient.id } });
+
+  return { ...patient, appointments };
 };

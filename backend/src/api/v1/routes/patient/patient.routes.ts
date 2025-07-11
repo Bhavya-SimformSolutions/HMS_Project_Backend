@@ -1,7 +1,7 @@
 import express, { NextFunction, Request, Response } from "express";
 import { checkAccess } from "../../middlewares/authentication.middleware";
 import { verifyJWT } from "../../middlewares/jwt.middleware";
-import { registerPatientDetails, checkPatientRegistration, getPatientDashboardStats } from "../../controllers/patient.controller";
+import { registerPatientDetails, checkPatientRegistration, getPatientDashboardStats, getPatientProfile } from "../../controllers/patient.controller";
 import { upload } from "../../middlewares/imageUpload.middleware";
 
 
@@ -22,5 +22,6 @@ router.post("/register",verifyJWT,upload.single('img'),(req:Request, res:Respons
 );
 
 router.get('/dashboard', verifyJWT, checkAccess('PATIENT'), getPatientDashboardStats);
+router.get('/profile', verifyJWT, checkAccess('PATIENT'), getPatientProfile);
 
-export default router; 
+export default router;

@@ -8,6 +8,8 @@ import {
   getAppointmentCountService,
   getDoctorsService,
   getPaginatedAppointmentsService,
+  getPatientAppointmentBillsService,
+  getPatientAppointmentDiagnosisService,
 } from "../services/appointment.service";
 import { createAppointmentSchema, updateAppointmentSchema } from "../validations/appointment.validation";
 
@@ -236,5 +238,79 @@ export const getPaginatedAppointments = async (req: Request, res: Response): Pro
     res.status(200).json({ appointments, total, page, limit });
   } catch (error) {
     res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Gets bills for a specific patient appointment
+ */
+export const getPatientAppointmentBills = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+      return;
+    }
+
+    const appointmentId = parseInt(req.params.id);
+    if (isNaN(appointmentId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid appointment ID",
+      });
+      return;
+    }
+
+    const bills = await getPatientAppointmentBillsService(userId, appointmentId);
+    res.status(200).json(bills);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch appointment bills",
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    });
+  }
+};
+
+/**
+ * Gets diagnosis for a specific patient appointment
+ */
+export const getPatientAppointmentDiagnosis = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+      return;
+    }
+
+    const appointmentId = parseInt(req.params.id);
+    if (isNaN(appointmentId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid appointment ID",
+      });
+      return;
+    }
+
+    const diagnosis = await getPatientAppointmentDiagnosisService(userId, appointmentId);
+    res.status(200).json({ diagnosis });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch appointment diagnosis",
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    });
   }
 };

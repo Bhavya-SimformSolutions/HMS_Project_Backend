@@ -1,6 +1,7 @@
 // This file initializes and starts the server.
 
 import express from "express";
+import { createServer } from "http";
 import dotenv from "dotenv";
 import adminRoutes from "./api/v1/routes/admin/adminDashboard.routes";
 import authRoutes from "./api/v1/routes/authentication.routes";
@@ -11,9 +12,8 @@ import serviceRoutes from "./api/v1/routes/admin/services.routes";
 import cors from 'cors'
 import path from 'path';
 import notificationRoutes from "./api/v1/routes/notification.routes";
-import { createServer } from "http";
-import { setWebSocketService } from "./api/v1/services/notification.service";
 import WebSocketService from "./api/v1/services/websocket.service";
+import { setWebSocketService } from "./api/v1/services/notification.service";
 
 dotenv.config();
 const app = express();

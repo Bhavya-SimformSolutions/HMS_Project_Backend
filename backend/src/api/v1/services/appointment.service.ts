@@ -117,7 +117,13 @@ export const getAppointmentByIdService = async (userId: string, appointmentId: n
     where: { id: appointmentId, patient_id: patient.id },
     include: {
       doctor: { select: { name: true, specialization: true, img: true } },
-      patient: { select: { first_name: true, last_name: true, gender: true, phone: true, address: true, date_of_birth: true, img: true } }
+      patient: { select: { first_name: true, last_name: true, gender: true, phone: true, address: true, date_of_birth: true, img: true, user_id: true } },
+      medical: {
+        include: {
+          vital_signs: true,
+          diagnosis: true,
+        },
+      },
     },
   });
   if (!appointment) throw new Error("Appointment not found");
@@ -238,4 +244,61 @@ export const getPaginatedAppointmentsService = async (page: number, limit: numbe
     prisma.appointment.count({ where }),
   ]);
   return { appointments, total };
+};
+
+/**
+ * Get bills for a specific patient appointment
+ */
+export const getPatientAppointmentBillsService = async (userId: string, appointmentId: number) => {
+  // First verify the patient owns this appointment
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error("Patient profile not found");
+
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, patient_id: patient.id },
+  });
+  if (!appointment) throw new Error("Appointment not found or access denied");
+
+  // Get the payment and bills data
+  const payment = await prisma.payment.findUnique({
+    where: { appointment_id: appointmentId },
+    include: {
+      bills: {
+        include: {
+          service: {
+            select: {
+              service_name: true,
+              price: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return payment;
+};
+
+/**
+ * Get diagnosis for a specific patient appointment
+ */
+export const getPatientAppointmentDiagnosisService = async (userId: string, appointmentId: number) => {
+  // First verify the patient owns this appointment
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error("Patient profile not found");
+
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, patient_id: patient.id },
+    include: {
+      medical: {
+        include: {
+          diagnosis: true,
+        },
+      },
+    },
+  });
+  if (!appointment) throw new Error("Appointment not found or access denied");
+
+  // Return diagnosis from the medical record
+  return appointment.medical?.diagnosis || [];
 };

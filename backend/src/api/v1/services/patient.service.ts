@@ -1,0 +1,342 @@
+import { PrismaClient, PaymentStatus } from "@prisma/client";
+import { z } from "zod";
+import { patientRegistrationSchema } from "../validations/patient.validation";
+
+type PatientFormData = z.infer<typeof patientRegistrationSchema>;
+
+const prisma = new PrismaClient();
+
+export const registerPatientDetailsService = async (userId: string, formData: Record<string, unknown>, file?: Express.Multer.File) => {
+  // Attach file path to formData
+  if (file) {
+    formData.img = `/uploads/${file.filename}`;
+  }
+  // Validate form data with Zod
+  const validatedData: PatientFormData = patientRegistrationSchema.parse(formData);
+  // Check if the patient is already registered for this user
+  const existingPatient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (existingPatient) throw new Error("Patient details already registered");
+  // Check if the email is already used by another patient
+  const existingEmail = await prisma.patient.findUnique({ where: { email: validatedData.email } });
+  if (existingEmail) throw new Error("Email already exists");
+  // Create patient record in the database
+  const patient = await prisma.patient.create({
+    data: {
+      ...validatedData,
+      user_id: userId,
+    },
+  });
+
+  // If User table is missing firstName/lastName, update them from patient registration
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user && (!user.firstName || !user.lastName)) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: user.firstName || patient.first_name,
+        lastName: user.lastName || patient.last_name,
+      },
+    });
+  }
+
+  return {
+    id: patient.id,
+    first_name: patient.first_name,
+    last_name: patient.last_name,
+    email: patient.email,
+    img: patient.img,
+  };
+};
+
+export const checkPatientRegistrationService = async (userId: string) => {
+  const isRegistered = await prisma.patient.findUnique({ where: { user_id: userId } });
+  return Boolean(isRegistered);
+};
+
+/**
+ * Returns dashboard stats for a patient: name, appointment counts by status, total count,
+ * next upcoming appointment, and recent appointments.
+ * @param userId - The user ID of the patient
+ */
+export const getPatientDashboardStatsService = async (userId: string) => {
+  // Find the patient by userId
+  const patient = await prisma.patient.findUnique({
+    where: { user_id: userId },
+    select: { first_name: true, last_name: true, id: true }
+  });
+  if (!patient) throw new Error('Patient not found');
+
+  // Appointment counts by status
+  const [scheduled, pending, completed, cancelled, total] = await Promise.all([
+    prisma.appointment.count({ where: { patient_id: patient.id, status: 'SCHEDULED' } }),
+    prisma.appointment.count({ where: { patient_id: patient.id, status: 'PENDING' } }),
+    prisma.appointment.count({ where: { patient_id: patient.id, status: 'COMPLETED' } }),
+    prisma.appointment.count({ where: { patient_id: patient.id, status: 'CANCELLED' } }),
+    prisma.appointment.count({ where: { patient_id: patient.id } })
+  ]);
+
+  // Next upcoming appointment (by date, status SCHEDULED)
+  const nextAppointment = await prisma.appointment.findFirst({
+    where: { patient_id: patient.id, status: 'SCHEDULED', appointment_date: { gte: new Date() } },
+    orderBy: { appointment_date: 'asc' },
+    include: { doctor: { select: { name: true, specialization: true } } }
+  });
+
+  // Recent appointments (last 5, newest first)
+  const recentAppointments = await prisma.appointment.findMany({
+    where: { patient_id: patient.id },
+    orderBy: { appointment_date: 'desc' },
+    take: 5,
+    include: { doctor: { select: { name: true, specialization: true } } }
+  });
+
+  return {
+    patientName: `${patient.first_name} ${patient.last_name}`,
+    counts: {
+      scheduled,
+      pending,
+      completed,
+      cancelled,
+      total
+    },
+    nextAppointment,
+    recentAppointments
+  };
+};
+
+/**
+ * Fetches a paginated list of patients for admin, with search and sort.
+ * @param page - The page number (1-based)
+ * @param limit - The number of patients per page
+ * @param search - Optional search string (name/email)
+ * @param sort - 'asc' or 'desc' for registration date
+ * @returns { patients, total }
+ */
+export const getPaginatedPatientsService = async (page: number, limit: number, search?: string, sort: 'asc' | 'desc' = 'desc') => {
+  const skip = (page - 1) * limit;
+  const where = search ? {
+    OR: [
+      { first_name: { contains: search, mode: 'insensitive' as const } },
+      { last_name: { contains: search, mode: 'insensitive' as const } },
+      { email: { contains: search, mode: 'insensitive' as const } },
+    ]
+  } : {};
+  const [patients, total] = await Promise.all([
+    prisma.patient.findMany({
+      skip,
+      take: limit,
+      where,
+      orderBy: { created_at: sort },
+    }),
+    prisma.patient.count({ where }),
+  ]);
+  return { patients, total };
+};
+
+export const getPatientProfileService = async (userId: string) => {
+  const patient = await prisma.patient.findUnique({
+    where: { user_id: userId },
+    select: {
+      first_name: true,
+      last_name: true,
+      email: true,
+      gender: true,
+      date_of_birth: true,
+      phone: true,
+      marital_status: true,
+      blood_group: true,
+      address: true,
+      emergency_contact_name: true,
+      emergency_contact_number: true,
+      relation: true,
+      img: true,
+      created_at: true,
+      updated_at: true,
+      id: true, // needed for appointment count
+      // add more fields as needed
+    }
+  });
+  if (!patient) throw new Error('Patient not found');
+
+  // Fetch appointment count
+  const appointments = await prisma.appointment.count({ where: { patient_id: patient.id } });
+
+  return { ...patient, appointments };
+};
+
+/**
+ * --- Types for filter objects ---
+ */
+type PatientRecordsFilters = {
+  doctorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+type PatientPrescriptionsFilters = {
+  doctorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+type PatientBillingFilters = {
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+/**
+ * Get paginated, searchable, filterable completed appointments for patient records page
+ */
+export const getPatientRecordsService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientRecordsFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    status: 'COMPLETED';
+    doctor_id?: string;
+    appointment_date?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id, status: 'COMPLETED' };
+  if (search) {
+    where.OR = [
+      { note: { contains: search, mode: 'insensitive' } },
+      { doctor: { name: { contains: search, mode: 'insensitive' } } },
+    ];
+  }
+  if (filters) {
+    if (filters.doctorId) where.doctor_id = filters.doctorId;
+    if (filters.dateFrom || filters.dateTo) {
+      where.appointment_date = {};
+      if (filters.dateFrom) where.appointment_date.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.appointment_date.lte = new Date(filters.dateTo);
+    }
+  }
+  const [appointments, total] = await Promise.all([
+    prisma.appointment.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { appointment_date: 'desc' },
+      include: {
+        doctor: { select: { name: true, specialization: true } },
+        medical: {
+          include: {
+            vital_signs: true,
+            diagnosis: true,
+          },
+        },
+        payment: { include: { bills: true } },
+      },
+    }),
+    prisma.appointment.count({ where }),
+  ]);
+  const data = appointments.map(appt => ({
+    ...appt,
+    vitalsCount: appt.medical ? appt.medical.vital_signs.length : 0,
+    diagnosisCount: appt.medical ? appt.medical.diagnosis.length : 0,
+    billsCount: appt.payment ? appt.payment.bills.length : 0,
+  }));
+  return { data, total };
+};
+
+export const getPatientPrescriptionsService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientPrescriptionsFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    doctor_id?: string;
+    created_at?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id };
+  if (search) {
+    where.OR = [
+      { diagnosis: { contains: search, mode: 'insensitive' } },
+      { symptoms: { contains: search, mode: 'insensitive' } },
+      { prescribed_medications: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (filters) {
+    if (filters.doctorId) where.doctor_id = filters.doctorId;
+    if (filters.dateFrom || filters.dateTo) {
+      where.created_at = {};
+      if (filters.dateFrom) where.created_at.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.created_at.lte = new Date(filters.dateTo);
+    }
+  }
+  const [diagnoses, total] = await Promise.all([
+    prisma.diagnosis.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: 'desc' },
+      include: {
+        doctor: { select: { name: true, specialization: true } },
+        medical: { select: { appointment_id: true } },
+      },
+    }),
+    prisma.diagnosis.count({ where }),
+  ]);
+  return { data: diagnoses, total };
+};
+
+export const getPatientBillingService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientBillingFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    status?: PaymentStatus;
+    bill_date?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id };
+  if (filters) {
+    if (filters.status && Object.values(PaymentStatus).includes(filters.status as PaymentStatus)) {
+      where.status = filters.status as PaymentStatus;
+    }
+    if (filters.dateFrom || filters.dateTo) {
+      where.bill_date = {};
+      if (filters.dateFrom) (where.bill_date as { gte?: Date; lte?: Date }).gte = new Date(filters.dateFrom);
+      if (filters.dateTo) (where.bill_date as { gte?: Date; lte?: Date }).lte = new Date(filters.dateTo);
+    }
+  }
+  if (search) {
+    const searchNum = Number(search);
+    where.OR = [
+      { appointment: { doctor: { name: { contains: search, mode: 'insensitive' } } } },
+      ...(!isNaN(searchNum) ? [{ id: searchNum }] : []),
+    ];
+  }
+  const payments = await prisma.payment.findMany({
+    where,
+    skip,
+    take: limit,
+    orderBy: { bill_date: 'desc' },
+    include: {
+      appointment: { include: { doctor: { select: { name: true, specialization: true } } } },
+      bills: { include: { service: true } },
+    },
+  });
+  const total = await prisma.payment.count({ where });
+  return { data: payments, total };
+};
+
+export type { PatientRecordsFilters, PatientPrescriptionsFilters, PatientBillingFilters };

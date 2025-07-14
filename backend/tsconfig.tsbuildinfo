@@ -1,0 +1,1 @@
+{"root":["./src/app.ts","./src/server.ts","./src/api/v1/interfaces/types/express.d.ts","./src/api/v1/middlewares/authMiddleware.ts","./src/api/v1/middlewares/jwtMiddleware.ts","./src/api/v1/routes/adminRoutes.ts","./src/api/v1/routes/authRoutes.ts","./src/api/v1/routes/index.ts"],"version":"5.8.2"}

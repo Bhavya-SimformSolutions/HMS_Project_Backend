@@ -43,14 +43,56 @@ export const createAppointmentService = async (userId: string, body: CreateAppoi
       doctor: { select: { name: true, specialization: true, user_id: true } },
     },
   });
-  // Send notification to doctor
+  // Send notification to doctor with detailed info
   if (appointment.doctor && appointment.doctor.user_id) {
+    const appointmentDateStr = appointmentDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
     await createNotification({
       userId: appointment.doctor.user_id,
-      title: 'New Appointment Booked',
-      message: `A patient has booked an appointment with you.`,
-      link: '/doctor/appointments',
+      title: '🩺 New Appointment Request',
+      message: `${patient.first_name} ${patient.last_name} has requested a ${validatedData.type} appointment on ${appointmentDateStr} at ${validatedData.time}. Please review and approve.`,
+      link: `/doctor/appointments/${appointment.id}`
     });
+  }
+  
+  // Send confirmation notification to patient
+  const appointmentDateStr = appointmentDate.toLocaleDateString('en-US', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  await createNotification({
+    userId: userId,
+    title: '📅 Appointment Request Submitted',
+    message: `Your ${validatedData.type} appointment with Dr. ${appointment.doctor.name} on ${appointmentDateStr} at ${validatedData.time} has been submitted and is pending approval.`,
+    link: `/appointments/${appointment.id}`
+  });
+  
+  // Notify admins of new appointments for monitoring (optional - can be configured)
+  const currentHour = new Date().getHours();
+  
+  // Only notify admins during business hours or for urgent appointments
+  if (currentHour >= 8 && currentHour <= 17 || validatedData.type.toLowerCase().includes('urgent') || validatedData.type.toLowerCase().includes('emergency')) {
+    // Get all admin users and send individual notifications
+    const adminUsers = await prisma.user.findMany({
+      where: { role: 'ADMIN' }
+    });
+    
+    for (const admin of adminUsers) {
+      await createNotification({
+        userId: admin.id,
+        title: '📋 New Appointment Request',
+        message: `${patient.first_name} ${patient.last_name} booked a ${validatedData.type} appointment with Dr. ${appointment.doctor.name} for ${appointmentDateStr} at ${validatedData.time}.`,
+        link: '/admin/appointments'
+      });
+    }
   }
   return appointment;
 };
@@ -84,18 +126,70 @@ export const getAppointmentByIdService = async (userId: string, appointmentId: n
 
 export const updateAppointmentStatusService = async (userId: string, appointmentId: number, body: UpdateAppointmentInput) => {
   const validatedData = updateAppointmentSchema.parse(body);
-  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  const patient = await prisma.patient.findUnique({ 
+    where: { user_id: userId },
+    select: { id: true, user_id: true, first_name: true, last_name: true }
+  });
   if (!patient) throw new Error("Patient profile not found");
-  const existingAppointment = await prisma.appointment.findFirst({ where: { id: appointmentId, patient_id: patient.id } });
+  
+  const existingAppointment = await prisma.appointment.findFirst({ 
+    where: { id: appointmentId, patient_id: patient.id },
+    include: { 
+      doctor: { select: { name: true, specialization: true, user_id: true } } 
+    }
+  });
   if (!existingAppointment) throw new Error("Appointment not found");
+  
   if (validatedData.status === AppointmentStatus.CANCELLED && existingAppointment.status !== AppointmentStatus.PENDING) {
     throw new Error("Only pending appointments can be cancelled");
   }
-  return prisma.appointment.update({
+  
+  const updatedAppointment = await prisma.appointment.update({
     where: { id: appointmentId },
     data: { status: validatedData.status as AppointmentStatus, reason: validatedData.reason },
     include: { doctor: { select: { name: true, specialization: true } } },
   });
+  
+  // Send notification to doctor when patient cancels
+  if (validatedData.status === AppointmentStatus.CANCELLED && existingAppointment.doctor.user_id) {
+    const appointmentDateStr = new Date(existingAppointment.appointment_date).toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    await createNotification({
+      userId: existingAppointment.doctor.user_id,
+      title: '🚫 Appointment Cancelled by Patient',
+      message: `${patient.first_name} ${patient.last_name} has cancelled their appointment scheduled for ${appointmentDateStr} at ${existingAppointment.time}. ${validatedData.reason ? `Reason: ${validatedData.reason}` : ''}`,
+      link: '/doctor/appointments',
+    });
+    
+    // Check if cancellation is same-day or urgent - notify admins
+    const appointmentDate = new Date(existingAppointment.appointment_date);
+    const today = new Date();
+    const timeDiff = appointmentDate.getTime() - today.getTime();
+    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    
+    if (daysDiff <= 1) { // Same day or next day cancellation
+      // Get all admin users and send individual notifications
+      const adminUsers = await prisma.user.findMany({
+        where: { role: 'ADMIN' }
+      });
+      
+      for (const admin of adminUsers) {
+        await createNotification({
+          userId: admin.id,
+          title: '⚠️ Urgent: Same-Day Appointment Cancellation',
+          message: `Patient ${patient.first_name} ${patient.last_name} cancelled appointment with Dr. ${existingAppointment.doctor.name} scheduled for ${appointmentDateStr} at ${existingAppointment.time}. Immediate attention may be required.`,
+          link: '/admin/appointments'
+        });
+      }
+    }
+  }
+  
+  return updatedAppointment;
 };
 
 export const getAppointmentCountService = async (userId: string) => {

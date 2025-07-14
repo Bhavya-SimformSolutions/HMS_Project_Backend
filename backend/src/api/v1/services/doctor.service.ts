@@ -128,14 +128,22 @@ export const addVitalSignsService = async (
     },
   });
 
-  // Notify patient
+  // Notify patient with enhanced message
   if (vitalAppointment) {
-    const patient = await prisma.patient.findUnique({ where: { id: vitalAppointment.patient_id } });
-    if (patient && patient.user_id) {
+    const patient = await prisma.patient.findUnique({ 
+      where: { id: vitalAppointment.patient_id },
+      select: { user_id: true, first_name: true, last_name: true }
+    });
+    const doctor = await prisma.doctor.findUnique({ 
+      where: { id: vitalAppointment.doctor_id },
+      select: { name: true }
+    });
+    
+    if (patient && patient.user_id && doctor) {
       await createNotification({
         userId: patient.user_id,
-        title: 'New Vital Signs Added',
-        message: 'New vital signs have been added to your appointment.',
+        title: '📊 New Vital Signs Recorded',
+        message: `Your vital signs have been recorded during your appointment with Dr. ${doctor.name}. View your health records to see the details.`,
         link: '/appointments',
       });
     }
@@ -184,13 +192,21 @@ export const addDiagnosisForAppointmentService = async (
     },
   });
 
-  // Notify patient
-  const patient = await prisma.patient.findUnique({ where: { id: patientId } });
-  if (patient && patient.user_id) {
+  // Notify patient with enhanced message
+  const patient = await prisma.patient.findUnique({ 
+    where: { id: patientId },
+    select: { user_id: true, first_name: true, last_name: true }
+  });
+  const doctor = await prisma.doctor.findUnique({ 
+    where: { id: doctorId },
+    select: { name: true }
+  });
+  
+  if (patient && patient.user_id && doctor) {
     await createNotification({
       userId: patient.user_id,
-      title: 'New Diagnosis Added',
-      message: 'A new diagnosis has been added to your appointment.',
+      title: '📋 New Diagnosis Added',
+      message: `Dr. ${doctor.name} has added a new diagnosis to your medical record. Please review the details in your appointment history.`,
       link: '/appointments',
     });
   }
@@ -221,15 +237,106 @@ export const updateDoctorAppointmentStatus = async (userId: string, appointmentI
     data: { status: status as AppointmentStatus, reason }
   });
 
-  // Notify patient
-  const patient = await prisma.patient.findUnique({ where: { id: updated.patient_id } });
+  // Enhanced notification based on status change
+  const patient = await prisma.patient.findUnique({ 
+    where: { id: updated.patient_id },
+    select: { user_id: true, first_name: true, last_name: true }
+  });
+  
   if (patient && patient.user_id) {
+    let title = '';
+    let message = '';
+    let emoji = '';
+    
+    switch (status) {
+      case 'SCHEDULED':
+        emoji = '✅';
+        title = 'Appointment Approved!';
+        message = `Good news! Dr. ${doctor.name} has approved your appointment. Your appointment is now confirmed.`;
+        break;
+      case 'COMPLETED':
+        emoji = '🏥';
+        title = 'Appointment Completed';
+        message = `Your appointment with Dr. ${doctor.name} has been marked as completed. Thank you for visiting us!`;
+        break;
+      case 'CANCELLED':
+        emoji = '❌';
+        title = 'Appointment Cancelled';
+        message = `Unfortunately, your appointment with Dr. ${doctor.name} has been cancelled. ${reason ? `Reason: ${reason}` : 'Please contact us for rescheduling.'}`;
+        
+        // Notify admins about doctor-initiated cancellations
+        const appointmentDetails = await prisma.appointment.findUnique({
+          where: { id: appointmentId },
+          select: { appointment_date: true, time: true }
+        });
+        
+        if (appointmentDetails) {
+          const appointmentDate = new Date(appointmentDetails.appointment_date);
+          const today = new Date();
+          const timeDiff = appointmentDate.getTime() - today.getTime();
+          const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+          
+          if (daysDiff <= 2) { // Within 2 days
+            // Get all admin users and send individual notifications
+            const adminUsers = await prisma.user.findMany({
+              where: { role: 'ADMIN' }
+            });
+            
+            const appointmentDateStr = appointmentDate.toLocaleDateString('en-US', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            });
+            
+            for (const admin of adminUsers) {
+              await createNotification({
+                userId: admin.id,
+                title: '🚨 Doctor Cancelled Appointment',
+                message: `Dr. ${doctor.name} cancelled appointment with ${patient.first_name} ${patient.last_name} on ${appointmentDateStr} at ${appointmentDetails.time}. ${reason ? `Reason: ${reason}` : 'No reason provided.'}`,
+                link: '/admin/appointments'
+              });
+            }
+          }
+        }
+        break;
+      default:
+        emoji = '📋';
+        title = 'Appointment Status Updated';
+        message = `Your appointment status was changed to ${status}.`;
+    }
+    
     await createNotification({
       userId: patient.user_id,
-      title: 'Appointment Status Updated',
-      message: `Your appointment status was changed to ${status}.`,
+      title: `${emoji} ${title}`,
+      message: message,
       link: '/appointments',
     });
+    
+    // Send reminder notification for scheduled appointments
+    if (status === 'SCHEDULED') {
+      const appointmentDetails = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        select: { appointment_date: true, time: true }
+      });
+      
+      if (appointmentDetails) {
+        const appointmentDateStr = new Date(appointmentDetails.appointment_date).toLocaleDateString('en-US', { 
+          weekday: 'long', 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        });
+        
+        // Send reminder notification (could be scheduled for later in production)
+        await createNotification({
+          userId: patient.user_id,
+          title: '⏰ Appointment Reminder',
+          message: `Don't forget! You have an appointment with Dr. ${doctor.name} on ${appointmentDateStr} at ${appointmentDetails.time}.`,
+          link: '/appointments',
+        });
+      }
+    }
   }
   return { updated };
 };

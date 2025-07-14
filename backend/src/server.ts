@@ -11,12 +11,24 @@ import serviceRoutes from "./api/v1/routes/admin/services.routes";
 import cors from 'cors'
 import path from 'path';
 import notificationRoutes from "./api/v1/routes/notification.routes";
+import { createServer } from "http";
+import { setWebSocketService } from "./api/v1/services/notification.service";
+import WebSocketService from "./api/v1/services/websocket.service";
 
 dotenv.config();
-const app=express();
+const app = express();
+
+// Create HTTP server
+const server = createServer(app);
+
+// Initialize WebSocket service
+const webSocketService = new WebSocketService(server);
+
+// Set WebSocket service for notification service
+setWebSocketService(webSocketService);
 
 app.use(cors({
-  origin: ['http://localhost:4200', 'http://localhost:40193'],
+  origin: ['http://localhost:4200', 'http://localhost:52377'],
   credentials: true,
 }))
 
@@ -27,14 +39,28 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// API Routes
 app.use("/admin", adminRoutes);
-app.use("/admin/services",serviceRoutes);
+app.use("/admin/services", serviceRoutes);
 app.use("/auth", authRoutes);
 app.use("/patient", patientRoutes);
 app.use("/patient/appointments", appointmentRoutes);
 app.use("/", doctorRoutes);
 app.use('/notifications', notificationRoutes);
 
-app.listen(process.env.PORT, () => {
-  console.log(`Server is running on port ${String(process.env.PORT)}`);
+// WebSocket status endpoint
+app.get('/api/websocket/status', (req, res) => {
+  res.json({
+    status: 'active',
+    connectedUsers: webSocketService.getConnectedUsersCount(),
+    timestamp: new Date().toISOString()
+  });
 });
+
+// Start server
+server.listen(process.env.PORT, () => {
+  console.log(`🚀 Server is running on port ${String(process.env.PORT)}`);
+});
+
+// Export for potential testing
+export { app, server, webSocketService };

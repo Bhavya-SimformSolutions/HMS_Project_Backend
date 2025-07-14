@@ -28,7 +28,7 @@ class WebSocketService {
   constructor(server: HTTPServer) {
     this.io = new SocketIOServer(server, {
       cors: {
-        origin: ['http://localhost:4200', 'http://localhost:52377'],
+        origin: ['http://localhost:4200', 'http://localhost:52377', 'http://localhost:52378'],
         credentials: true,
       },
     });

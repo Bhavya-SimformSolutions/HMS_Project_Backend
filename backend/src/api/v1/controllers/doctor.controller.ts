@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { createDoctorService, getAllDoctorsService, getDoctorsForPatientsService, getAppointmentByIdService, addVitalSignsService, getDiagnosisForAppointmentService, getDoctorAppointmentsByUserId, updateDoctorAppointmentStatus as updateDoctorAppointmentStatusService, addDiagnosisForAppointmentFull, getBillsForAppointment as getBillsForAppointmentService, addBillToAppointment as addBillToAppointmentService, deleteBillFromAppointment as deleteBillFromAppointmentService, generateFinalBillForAppointment as generateFinalBillForAppointmentService, getAllServices as getAllServicesService, getDoctorDashboardStatsService, getPaginatedDoctorPatientsService, getPaginatedDoctorBillingOverviewService, getPaginatedDoctorsForAdminService, editBillInAppointment as editBillInAppointmentService, editFinalBillSummary as editFinalBillSummaryService } from '../services/doctor.service';
 import { createDoctorSchema, doctorAppointmentStatusSchema, vitalSignsSchema, diagnosisSchema, addBillSchema, generateFinalBillSchema, editBillSchema, editFinalBillSchema } from '../validations/doctor.validation';
+import { getVitalsByAppointmentId } from '../services/vitals.service';
 
 export const createDoctor = async (req: Request, res: Response) => {
   try {
@@ -363,5 +364,24 @@ export const editFinalBillSummaryController = async (req: Request, res: Response
     res.status(200).json(updatedPayment);
   } catch (error: any) {
     res.status(500).json({ message: 'Error editing final bill summary', error: error.message });
+  }
+};
+
+export const getVitalsForDoctorAppointment = async (req: Request, res: Response) => {
+  try {
+    if (!req.userId || req.role !== 'DOCTOR') {
+      res.status(403).json({ message: 'Access denied: You don\'t have permission to access this !' });
+      return;
+    }
+    const appointmentId = parseInt(req.params.id, 10);
+    if (isNaN(appointmentId)) {
+      res.status(400).json({ message: 'Invalid appointment ID' });
+      return;
+    }
+    // Optionally: check if doctor owns this appointment
+    const vitals = await getVitalsByAppointmentId(appointmentId);
+    res.json({ vitals });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch vitals' });
   }
 };

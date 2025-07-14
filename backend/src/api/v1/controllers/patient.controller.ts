@@ -1,6 +1,18 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { registerPatientDetailsService, checkPatientRegistrationService, getPatientDashboardStatsService, getPaginatedPatientsService, getPatientProfileService } from '../services/patient.service';
+import {
+  registerPatientDetailsService,
+  checkPatientRegistrationService,
+  getPatientDashboardStatsService,
+  getPaginatedPatientsService,
+  getPatientProfileService,
+  getPatientRecordsService,
+  getPatientPrescriptionsService,
+  getPatientBillingService,
+  PatientRecordsFilters,
+  PatientPrescriptionsFilters,
+  PatientBillingFilters,
+} from '../services/patient.service';
 
 /**
  * Registers patient details in the system.
@@ -87,8 +99,9 @@ export const getPatientDashboardStats = async (req: Request, res: Response) => {
     }
     const stats = await getPatientDashboardStatsService(req.userId);
     res.status(200).json(stats);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Failed to fetch patient dashboard stats' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch patient dashboard stats';
+    res.status(500).json({ message });
   }
 };
 
@@ -122,5 +135,80 @@ export const getPatientProfile = async (req: Request, res: Response): Promise<vo
     res.status(200).json({ data: profile }); // wrap in { data: ... } for frontend compatibility
   } catch (error) {
     res.status(404).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+// Helper to safely parse filters
+function parseFilters(filters: unknown): unknown {
+  if (typeof filters === 'string') {
+    try {
+      return JSON.parse(filters);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Get paginated, searchable, filterable completed appointments for patient records page
+ */
+export const getPatientRecords = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const filters = parseFilters(req.query.filters) as PatientRecordsFilters | undefined;
+    const result = await getPatientRecordsService(userId, page, limit, search, filters);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Get paginated, searchable, filterable prescriptions (diagnoses) for patient
+ */
+export const getPatientPrescriptions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const filters = parseFilters(req.query.filters) as PatientPrescriptionsFilters | undefined;
+    const result = await getPatientPrescriptionsService(userId, page, limit, search, filters);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error instanceof Error ? error.message : 'Internal server error' });
+  }
+};
+
+/**
+ * Get paginated, searchable, filterable billing/payments for patient
+ */
+export const getPatientBilling = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || undefined;
+    const filters = parseFilters(req.query.filters) as PatientBillingFilters | undefined;
+    const result = await getPatientBillingService(userId, page, limit, search, filters);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error instanceof Error ? error.message : 'Internal server error' });
   }
 };

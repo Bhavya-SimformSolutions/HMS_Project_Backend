@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, PaymentStatus } from "@prisma/client";
 import { z } from "zod";
 import { patientRegistrationSchema } from "../validations/patient.validation";
 
@@ -116,9 +116,9 @@ export const getPaginatedPatientsService = async (page: number, limit: number, s
   const skip = (page - 1) * limit;
   const where = search ? {
     OR: [
-      { first_name: { contains: search, mode: 'insensitive' as any } },
-      { last_name: { contains: search, mode: 'insensitive' as any } },
-      { email: { contains: search, mode: 'insensitive' as any } },
+      { first_name: { contains: search, mode: 'insensitive' as const } },
+      { last_name: { contains: search, mode: 'insensitive' as const } },
+      { email: { contains: search, mode: 'insensitive' as const } },
     ]
   } : {};
   const [patients, total] = await Promise.all([
@@ -163,3 +163,180 @@ export const getPatientProfileService = async (userId: string) => {
 
   return { ...patient, appointments };
 };
+
+/**
+ * --- Types for filter objects ---
+ */
+type PatientRecordsFilters = {
+  doctorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+type PatientPrescriptionsFilters = {
+  doctorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+type PatientBillingFilters = {
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+/**
+ * Get paginated, searchable, filterable completed appointments for patient records page
+ */
+export const getPatientRecordsService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientRecordsFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    status: 'COMPLETED';
+    doctor_id?: string;
+    appointment_date?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id, status: 'COMPLETED' };
+  if (search) {
+    where.OR = [
+      { note: { contains: search, mode: 'insensitive' } },
+      { doctor: { name: { contains: search, mode: 'insensitive' } } },
+    ];
+  }
+  if (filters) {
+    if (filters.doctorId) where.doctor_id = filters.doctorId;
+    if (filters.dateFrom || filters.dateTo) {
+      where.appointment_date = {};
+      if (filters.dateFrom) where.appointment_date.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.appointment_date.lte = new Date(filters.dateTo);
+    }
+  }
+  const [appointments, total] = await Promise.all([
+    prisma.appointment.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { appointment_date: 'desc' },
+      include: {
+        doctor: { select: { name: true, specialization: true } },
+        medical: {
+          include: {
+            vital_signs: true,
+            diagnosis: true,
+          },
+        },
+        payment: { include: { bills: true } },
+      },
+    }),
+    prisma.appointment.count({ where }),
+  ]);
+  const data = appointments.map(appt => ({
+    ...appt,
+    vitalsCount: appt.medical ? appt.medical.vital_signs.length : 0,
+    diagnosisCount: appt.medical ? appt.medical.diagnosis.length : 0,
+    billsCount: appt.payment ? appt.payment.bills.length : 0,
+  }));
+  return { data, total };
+};
+
+export const getPatientPrescriptionsService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientPrescriptionsFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    doctor_id?: string;
+    created_at?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id };
+  if (search) {
+    where.OR = [
+      { diagnosis: { contains: search, mode: 'insensitive' } },
+      { symptoms: { contains: search, mode: 'insensitive' } },
+      { prescribed_medications: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+  if (filters) {
+    if (filters.doctorId) where.doctor_id = filters.doctorId;
+    if (filters.dateFrom || filters.dateTo) {
+      where.created_at = {};
+      if (filters.dateFrom) where.created_at.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.created_at.lte = new Date(filters.dateTo);
+    }
+  }
+  const [diagnoses, total] = await Promise.all([
+    prisma.diagnosis.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: 'desc' },
+      include: {
+        doctor: { select: { name: true, specialization: true } },
+        medical: { select: { appointment_id: true } },
+      },
+    }),
+    prisma.diagnosis.count({ where }),
+  ]);
+  return { data: diagnoses, total };
+};
+
+export const getPatientBillingService = async (
+  userId: string,
+  page: number,
+  limit: number,
+  search?: string,
+  filters?: PatientBillingFilters
+) => {
+  const patient = await prisma.patient.findUnique({ where: { user_id: userId } });
+  if (!patient) throw new Error('Patient not found');
+  const skip = (page - 1) * limit;
+  const where: {
+    patient_id: string;
+    status?: PaymentStatus;
+    bill_date?: { gte?: Date; lte?: Date };
+    OR?: Array<Record<string, unknown>>;
+  } = { patient_id: patient.id };
+  if (filters) {
+    if (filters.status && Object.values(PaymentStatus).includes(filters.status as PaymentStatus)) {
+      where.status = filters.status as PaymentStatus;
+    }
+    if (filters.dateFrom || filters.dateTo) {
+      where.bill_date = {};
+      if (filters.dateFrom) (where.bill_date as { gte?: Date; lte?: Date }).gte = new Date(filters.dateFrom);
+      if (filters.dateTo) (where.bill_date as { gte?: Date; lte?: Date }).lte = new Date(filters.dateTo);
+    }
+  }
+  if (search) {
+    const searchNum = Number(search);
+    where.OR = [
+      { appointment: { doctor: { name: { contains: search, mode: 'insensitive' } } } },
+      ...(!isNaN(searchNum) ? [{ id: searchNum }] : []),
+    ];
+  }
+  const payments = await prisma.payment.findMany({
+    where,
+    skip,
+    take: limit,
+    orderBy: { bill_date: 'desc' },
+    include: {
+      appointment: { include: { doctor: { select: { name: true, specialization: true } } } },
+      bills: { include: { service: true } },
+    },
+  });
+  const total = await prisma.payment.count({ where });
+  return { data: payments, total };
+};
+
+export type { PatientRecordsFilters, PatientPrescriptionsFilters, PatientBillingFilters };
